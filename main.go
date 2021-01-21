@@ -1,135 +1,80 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"errors"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 
-	"github.com/Azure-Samples/azure-sdk-for-go-samples/internal/config"
-	"github.com/Azure-Samples/azure-sdk-for-go-samples/internal/iam"
-	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-11-01/network"
-	"github.com/Azure/go-autorest/autorest/to"
+	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2020-08-01/network"
+	"github.com/Azure/go-autorest/autorest/azure/auth"
 )
 
-func getLBClient() network.LoadBalancersClient {
-	lbClient := network.NewLoadBalancersClient(config.SubscriptionID())
-	auth, _ := iam.GetResourceManagementAuthorizer()
-	lbClient.Authorizer = auth
-	lbClient.AddToUserAgent(config.UserAgent())
-	return lbClient
+var teamsURL string = os.Getenv("TEAMS_CHANNEL_URL")
+
+func parseResID(id *string) (map[string]string, error) {
+	splittedID := strings.Split(*id, "/")
+	result := make(map[string]string, len(splittedID))
+	if len(splittedID) > 8 {
+		for k, v := range splittedID {
+			if k%2 == 0 && k != 0 {
+				result[splittedID[k-1]] = v
+			}
+		}
+	} else {
+		return nil, errors.New("Incorrect Resource ID")
+	}
+	return result, nil
 }
 
-// GetLoadBalancer gets info on a loadbalancer
-func GetLoadBalancer(ctx context.Context, lbName string) (network.LoadBalancer, error) {
-	lbClient := getLBClient()
-	return lbClient.Get(ctx,config.GroupName(), lbName, "")
-}
-
-// CreateLoadBalancer creates a load balancer with 2 inbound NAT rules.
-func CreateLoadBalancer(ctx context.Context, lbName, pipName string) (lb network.LoadBalancer, err error) {
-	probeName := "probe"
-	frontEndIPConfigName := "fip"
-	backEndAddressPoolName := "backEndPool"
-	idPrefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/loadBalancers", config.SubscriptionID(), config.GroupName())
-
-	pip, err := GetPublicIP(ctx, pipName)
+func checkBackPool(lbID *string, minLvl int) {
+	backPools := make([]string, 0)
+	parsedLB, err := parseResID(lbID)
 	if err != nil {
+		postTeams("Failed to get information about LB with ID: "+*lbID+"\nError: "+err.Error(), teamsURL)
 		return
 	}
-
-	lbClient := getLBClient()
-	future, err := lbClient.CreateOrUpdate(ctx,
-		config.GroupName(),
-		lbName,
-		network.LoadBalancer{
-			Location: to.StringPtr(config.Location()),
-			LoadBalancerPropertiesFormat: &network.LoadBalancerPropertiesFormat{
-				FrontendIPConfigurations: &[]network.FrontendIPConfiguration{
-					{
-						Name: &frontEndIPConfigName,
-						FrontendIPConfigurationPropertiesFormat: &network.FrontendIPConfigurationPropertiesFormat{
-							PrivateIPAllocationMethod: network.Dynamic,
-							PublicIPAddress:           &pip,
-						},
-					},
-				},
-				BackendAddressPools: &[]network.BackendAddressPool{
-					{
-						Name: &backEndAddressPoolName,
-					},
-				},
-				Probes: &[]network.Probe{
-					{
-						Name: &probeName,
-						ProbePropertiesFormat: &network.ProbePropertiesFormat{
-							Protocol:          network.ProbeProtocolHTTP,
-							Port:              to.Int32Ptr(80),
-							IntervalInSeconds: to.Int32Ptr(15),
-							NumberOfProbes:    to.Int32Ptr(4),
-							RequestPath:       to.StringPtr("healthprobe.aspx"),
-						},
-					},
-				},
-				LoadBalancingRules: &[]network.LoadBalancingRule{
-					{
-						Name: to.StringPtr("lbRule"),
-						LoadBalancingRulePropertiesFormat: &network.LoadBalancingRulePropertiesFormat{
-							Protocol:             network.TransportProtocolTCP,
-							FrontendPort:         to.Int32Ptr(80),
-							BackendPort:          to.Int32Ptr(80),
-							IdleTimeoutInMinutes: to.Int32Ptr(4),
-							EnableFloatingIP:     to.BoolPtr(false),
-							LoadDistribution:     network.LoadDistributionDefault,
-							FrontendIPConfiguration: &network.SubResource{
-								ID: to.StringPtr(fmt.Sprintf("/%s/%s/frontendIPConfigurations/%s", idPrefix, lbName, frontEndIPConfigName)),
-							},
-							BackendAddressPool: &network.SubResource{
-								ID: to.StringPtr(fmt.Sprintf("/%s/%s/backendAddressPools/%s", idPrefix, lbName, backEndAddressPoolName)),
-							},
-							Probe: &network.SubResource{
-								ID: to.StringPtr(fmt.Sprintf("/%s/%s/probes/%s", idPrefix, lbName, probeName)),
-							},
-						},
-					},
-				},
-				InboundNatRules: &[]network.InboundNatRule{
-					{
-						Name: to.StringPtr("natRule1"),
-						InboundNatRulePropertiesFormat: &network.InboundNatRulePropertiesFormat{
-							Protocol:             network.TransportProtocolTCP,
-							FrontendPort:         to.Int32Ptr(21),
-							BackendPort:          to.Int32Ptr(22),
-							EnableFloatingIP:     to.BoolPtr(false),
-							IdleTimeoutInMinutes: to.Int32Ptr(4),
-							FrontendIPConfiguration: &network.SubResource{
-								ID: to.StringPtr(fmt.Sprintf("/%s/%s/frontendIPConfigurations/%s", idPrefix, lbName, frontEndIPConfigName)),
-							},
-						},
-					},
-					{
-						Name: to.StringPtr("natRule2"),
-						InboundNatRulePropertiesFormat: &network.InboundNatRulePropertiesFormat{
-							Protocol:             network.TransportProtocolTCP,
-							FrontendPort:         to.Int32Ptr(23),
-							BackendPort:          to.Int32Ptr(22),
-							EnableFloatingIP:     to.BoolPtr(false),
-							IdleTimeoutInMinutes: to.Int32Ptr(4),
-							FrontendIPConfiguration: &network.SubResource{
-								ID: to.StringPtr(fmt.Sprintf("/%s/%s/frontendIPConfigurations/%s", idPrefix, lbName, frontEndIPConfigName)),
-							},
-						},
-					},
-				},
-			},
-		})
-
+	client := network.NewLoadBalancersClient(parsedLB["subscriptions"])
+	client.Authorizer, _ = auth.NewAuthorizerFromCLI()
+	lbPtr, err := client.Get(context.Background(), parsedLB["resourceGroups"], parsedLB["loadBalancers"], "")
 	if err != nil {
-		return lb, fmt.Errorf("cannot create load balancer: %v", err)
+		postTeams("Failed to get information about LB with ID: "+*lbID+"\nError: "+err.Error(), teamsURL)
+	} else {
+		poolSize := 0
+		for _, v := range *lbPtr.BackendAddressPools {
+			backPools = append(backPools, *v.ID)
+			if v.BackendIPConfigurations != nil {
+				poolSize = len(*v.BackendIPConfigurations)
+			} else {
+				poolSize = 0
+			}
+			if poolSize == 0 || poolSize < minLvl {
+				postTeams("ID: "+*v.ID+"\nNodes: "+strconv.Itoa(poolSize), teamsURL)
+			}
+		}
 	}
+}
 
-	err = future.WaitForCompletionRef(ctx, lbClient.Client)
-	if err != nil {
-		return lb, fmt.Errorf("cannot get load balancer create or update future response: %v", err)
+func postTeams(msg, url string) {
+	jsonMsg := []byte(`{"text": "` + msg + `"}`)
+	http.Post(url, "application/json", bytes.NewBuffer(jsonMsg))
+}
+
+func main() {
+	var thresholdValue int
+	if len(os.Args) < 3 {
+		postTeams("Incorrect number of arguments", teamsURL)
+		return
 	}
-
-	return future.Result(lbClient)
+	if os.Args[2] != "" {
+		thresholdValue, _ = strconv.Atoi(os.Args[2])
+	} else {
+		thresholdValue = 1
+	}
+	for _, v := range strings.Split(os.Args[1], ",") {
+		checkBackPool(&v, thresholdValue)
+	}
 }
