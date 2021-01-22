@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -58,8 +59,16 @@ func checkBackPool(lbID *string, minLvl int) {
 	}
 }
 
+type TeamsMessage struct {
+	Text string
+}
+
 func postTeams(msg, url string) {
-	jsonMsg := []byte(`{"text": "` + msg + `"}`)
+	t := TeamsMessage{Text: msg}
+	jsonMsg, err := json.Marshal(t)
+	if err != nil {
+		jsonMsg = []byte(`{"text": "Couldn't marshal the message"}`)
+	}
 	http.Post(url, "application/json", bytes.NewBuffer(jsonMsg))
 }
 
