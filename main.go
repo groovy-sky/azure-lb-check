@@ -39,7 +39,18 @@ func checkBackPool(lbID *string, minLvl int) {
 		return
 	}
 	client := network.NewLoadBalancersClient(parsedLB["subscriptions"])
-	client.Authorizer, _ = auth.NewAuthorizerFromCLI()
+	if os.Getenv("FUNCTIONS_EXTENSION_VERSION") != "" {
+		msiConfig := auth.NewMSIConfig()
+		client.Authorizer, err = msiConfig.Authorizer()
+		if err != nil {
+			postTeams("Failed to authorize with MSI", teamsURL)
+		}
+	} else {
+		client.Authorizer, err = auth.NewAuthorizerFromCLI()
+		if err != nil {
+			postTeams("Failed to authorize with CLI", teamsURL)
+		}
+	}
 	lbPtr, err := client.Get(context.Background(), parsedLB["resourceGroups"], parsedLB["loadBalancers"], "")
 	if err != nil {
 		postTeams("Failed to get information about LB with ID: "+*lbID+"\nError: "+err.Error(), teamsURL)
