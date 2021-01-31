@@ -70,7 +70,7 @@ func checkBackPool(lbID *string, minLvl int) {
                 poolSize = 0
             }
             if poolSize == 0 || poolSize < minLvl {
-                postTeams("ID: "+*v.ID+"\nNodes: "+strconv.Itoa(poolSize), teamsURL)
+                postTeams("ID: "+*v.ID+"   \nNodes: "+strconv.Itoa(poolSize), teamsURL)
             }
         }
     }

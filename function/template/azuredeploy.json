@@ -107,11 +107,11 @@
                         },
                         {
                             "name": "LB_ID_LIST",
-                            "value": "[toLower(parameters('loadBalancersID'))]"
+                            "value": "[parameters('loadBalancersID')]"
                         },
                         {
                             "name": "POOL_ALERT_LVL",
-                            "value": "[toLower(parameters('alertLevel'))]"
+                            "value": "[parameters('alertLevel')]"
                         }
                     ]
                 },
