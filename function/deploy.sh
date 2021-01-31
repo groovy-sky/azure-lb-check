@@ -1,8 +1,9 @@
 func_grp=$1
 lb_ids=$2
 teams_url=$3
+alert_lvl='1'
 az group create --location "westeurope" --name $func_grp
-arm_out=$(az deployment group create --resource-group $func_grp --template-file template/azuredeploy.json --parameters teamsURL=$teams_url loadBalancersID=$lb_ids alertLevel='1' --query properties.outputs)
+arm_out=$(az deployment group create --resource-group $func_grp --template-file template/azuredeploy.json --parameters teamsURL=$teams_url loadBalancersID=$lb_ids alertLevel=$alert_lvl --query properties.outputs)
 spn_id=$(jq -r .principalId.value <<< $arm_out)
 func_name=$(jq -r .functionName.value <<< $arm_out)
 IFS=',' read -ra ADDR <<< "$lb_ids"
